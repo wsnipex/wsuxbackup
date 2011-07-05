@@ -1,0 +1,24 @@
+
+
+
+
+#################
+# How to restore 
+#################
+#+ DO NOT UNCOMMENT ANYTHING BELOW, THIS COULD BREAK YOUR SYSTEM
+#
+#+ Restore will eventually get its own script, till then here is the manual procedure - not for newbies. if unsure ask on the forum
+#
+#+ Be careful, restoring is a dangerous action - it can destroy data! 
+#
+#+ restore the Master Boot Record:
+#dd if=backup-sda.mbr of=/dev/sda
+#
+#+ here is how to restore extended partitions entries:
+#sfdisk /dev/sda < backup-sda.sf
+#
+#+ restore data:
+# cd /
+# sudo tar xzvf backup_$(hostname).tar.gz
+# or if split:
+# cat *tar.gz* | tar -xvpzf - -C / 
