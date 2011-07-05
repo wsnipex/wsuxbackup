@@ -1,0 +1,221 @@
+#!/bin/bash
+#
+#-------------- Config -------------------#
+#
+
+# backup dir. which directory do we backup 
+backupdir="/"     # default: "/" - backup entire system
+#backupdir="/home/"     # default: "/" - backup entire system
+
+# backup destination dir
+destdir="/data/backup"
+
+
+# backup the MBR? 
+#backupmbr="true"
+backupmbr="false"
+
+# backup extended partition Table - Warning: does NOT support GUID/GPT
+# Apple MACs are using GPT, do not enable on MAC.
+# leave false if unsure.
+backupparttable="false"
+#backupparttable="true"
+
+# the disk that holds the MBR
+disk="/dev/sda"
+
+# check free space on backup medium
+checkspace="true"
+
+# for Rsync method(see below) you need at least 110% free
+# lower values will be ignored
+# sane values for tar method are >25%
+destpercentminfree="25"   # for Rsync method(see below) you need at least 110% free
+
+# which dirs to exclude from backup
+#excludes=(/mnt /media /home/*/.gvfs /var/cache /var/log) # defaults
+excludes=(/mnt/* /media/* /home/*/.gvfs /data /data2 /home/xbmc/.ccache /var/cache /var/log /opt/xbmc.src /opt/ffmpeg /opt/ffmpeg-0.7.1) 
+
+# Backup Method - tar or rsync
+backupmethod="rsync"
+#backupmethod="tar"
+
+# Max backup count
+maxtarbackups="3"
+maxrsyncbackups="7"
+
+# split tar backup to multiple parts
+splitfiles="true"  # set to false to not split backup
+splitsize="3900m"  #~4GB
+
+# extra options for tar and rsync
+verbose="v"   #"v" = verbose. leave blank for no verbosity
+extrataropts=""
+extrarsyncopts=""
+
+
+
+#---------------- END CONFIG ---------------------#
+
+###
+# Functions
+###
+
+function usage {  
+    echo "usage: sudo $0"
+    #exit 0
+}
+
+function checkRoot {
+    if [[ $(id -u) != 0 ]]
+    then
+        echo "you must run this as root" 
+	usage
+        exit 10
+    fi
+}
+
+function checkBackupDir {
+    cd $destdir || exit 11
+    if [ "$backupmethod" = "tar" ] && [ -f $filename* ]
+    then
+        echo "todays backup $filename already exists" 
+        exit 1
+    fi
+
+    if [ "$checkspace" != "false" ]
+    then 
+        rootsize=$(df -k |grep "$backupdir$" | awk '{ print $3 }')
+        destfree=$(df -k . |tail -1 | awk '{ print $3 }')
+        tmp=$(echo "scale=2;  ($destfree / $rootsize) * 100" | bc)
+        destpercentfree=${tmp%\.00}
+        echo "% free space on $destdir : $destpercentfree " 
+    
+        if [ "$backupmethod" = "tar" ] && [ $destpercentfree -lt $destpercentminfree ]
+        then 
+            echo "Warning: free space on $destdir is lower then 25% of used space on $backupdir" 
+            echo "free up space or set checkspace=\"false\" to ignore" 
+            exit 12
+        fi
+        
+        if [ "$backupmethod" = "rsync" ] && [ $destpercentfree -lt 110 ]
+	then
+            echo "Warning: free space on $destdir is lower then 110% of used space on $backupdir" 
+            echo "free up space or set checkspace=\"false\" to ignore" 
+            exit 12
+        fi
+    fi
+}
+
+function backupMBR {
+    cd ${destdir} || exit 11
+    echo "#-------- backing up MBR ----------#" 
+    dd if=${disk} of=backup-${disk#/dev/}_${date}.mbr count=1 bs=512
+    ERR=$?
+    [ $ERR -eq 0 ] && echo "#----- backup  successful ---------#" 
+}
+
+function backupParttable {
+    cd ${destdir} || exit 11 
+    echo "#--- backing up Partition Table ---#" 
+    sfdisk -d ${disk} > backup-${disk#/dev/}_${date}.sf
+    ERR=$?
+    [ $ERR -eq 0 ] && echo "#----- backup  successful ---------#" 
+}
+
+function backupDataTar {
+
+    excludestring=$(echo "" ${excludes[*]} | sed -r 's/\s+/ --exclude=/g')
+    cd ${destdir} || exit 11
+    echo "#-------- backing up data----------#" 
+    if [[ "$splitfiles" = "true" ]]
+    then
+        tar -c${verbose}pz --exclude=${filename} --exclude=$PWD \
+        --exclude=/proc --exclude=/lost+found --exclude=/sys $excludestring \
+        $extrataropts $backupdir | split -d -b ${splitsize} - ${filename}. 
+        ERR=$?
+    else
+        tar -c${verbose}pzf ${filename} --exclude=/${filename} \
+        --exclude=/proc --exclude=/lost+found --exclude=/sys $excludestring \
+        $extrataropts $backupdir 
+        ERR=$?
+    fi
+}
+
+function backupDataRsync {
+    echo "backing up $backupdir with rsync"
+    excludestring=$(echo "" ${excludes[*]} | sed -r 's/\s+/ --exclude=/g')
+    rsyncargs="-aAHXRSE${verbose} --devices --specials --delete-during --numeric-ids --exclude=/proc/* --exclude=/lost+found --exclude=/sys/* ${excludestring} ${extrarsyncopts}"
+    subdir="$(hostname)_"
+
+    cd ${destdir} || exit 11
+    oldest=$(ls -d1 ${subdir}* | tail -1)
+    
+    if [ -d ${oldest} ]
+    then
+        if [ ${oldest#$(hostname)_} -ge $maxrsyncbackups ]
+        then
+            echo "mv ${oldest} ${subdir}tmp" 
+            mv ${oldest} ${subdir}tmp
+        fi
+
+        for ((i=${oldest#$(hostname)_}; i>=0; i--))
+        do
+            j=$((i + 1))
+            [[ -d ${subdir}$i ]] && echo "mv ${subdir}$i ${subdir}$j"
+            [[ -d ${subdir}$i ]] && mv ${subdir}$i ${subdir}$j
+        done
+        [ -d ${subdir}tmp ] && echo "mv ${subdir}tmp ${subdir}0" && mv ${subdir}tmp ${subdir}0
+        echo "cp -al ${subdir}1 ${subdir}0" 
+        cp -al ${subdir}1 ${subdir}0
+    fi 
+    echo "#-------- backing up data----------#" 
+    echo "rsync ${rsyncargs} ${backupdir} ${subdir}0/ "
+    rsync ${rsyncargs} ${backupdir} ${subdir}0/
+    ERR=$?
+    [ $ERR -eq 0 ] && echo "#----- backup  successful ---------#" 
+}
+
+###
+# Main
+###
+X="echo"
+date=$(date '+%Y_%m_%d')
+filename="backup_$(hostname)_${date}.tar.gz"
+[[ -z $backupdir ]] && backupdir="/"
+
+checkRoot 
+checkBackupDir
+[[ "$backupmbr" = "true" ]] && backupMBR
+[[ "$backupparttable" = "true" ]] && backupParttable
+[[ "$backupmethod" = "tar" ]] && backupDataTar
+[[ "$backupmethod" = "rsync" ]] && backupDataRsync
+
+exit 0
+
+
+#+ DO NOT UNCOMMENT ANYTHING BELOW, THIS COULD BREAK YOUR SYSTEM
+
+
+
+
+#################
+# How to restore 
+#################
+#+ DO NOT UNCOMMENT ANYTHING BELOW, THIS COULD BREAK YOUR SYSTEM
+#
+#+ Restore will eventually get its own script, till then here is the manual procedure - not for newbies. if unsure ask on the forum
+#
+#+ Be careful, restoring is a dangerous action - it can destroy data! 
+#
+#+ restore the Master Boot Record:
+#dd if=backup-sda.mbr of=/dev/sda
+#
+#+ here is how to restore extended partitions entries:
+#sfdisk /dev/sda < backup-sda.sf
+#
+#+ restore data:
+# cd /
+# sudo tar xzvf backup_$(hostname).tar.gz
+# or if split:
+# cat *tar.gz* | tar -xvpzf - -C / 
