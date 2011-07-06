@@ -59,6 +59,12 @@ backupmethod="tar"
 #extrarsyncopts=""
 
 
+# XBMC specific options
+notifyxbmc="false"
+#notifyxbmc="true"    # send notification to xbmc 
+#xbmcurl="http://localhost:8082"
+xbmcurl="http://localhost:8080"  # URL of XBMCs webserver
+
 
 #---------------- END CONFIG ---------------------#
 
@@ -67,15 +73,17 @@ backupmethod="tar"
 ###
 
 function usage {  
-    echo "usage: sudo $0 [-m=tar|rsync] -i source -d destination {-v -B -P -S 3890m}"
+    echo "usage: sudo $0 -c|-C configfile|-m=[tar|rsync] -i source -d destination {-v -B -P -S 3890m}"
     echo "------------------------------"
     echo "commandline options will override the config file."
     echo "options that are not given on command line, but are in the config file"
     echo "will still be in effect!"
     echo "------------------------------"
     echo "  -c configfile only mode."
+    echo "     uses ./wsuxbackup.cfg or /etc/wsuxbackup.cfg in that order"
     echo "     use for automation/non interactive mode - e.g. cronjob" 
     echo "     make sure to have setup wsuxbackup.cfg properly"
+    echo "  -C use other configfile"
     echo "  -m backupmethod - tar or rsync"
     echo "  -v verbose" 
     echo "  -i source dir to backup"
@@ -92,6 +100,7 @@ function checkRoot {
     if [[ $(id -u) != 0 ]]
     then
         echo "must be run as root" 
+        [[ "$notifyxbmc" = "true" ]] && notifyXbmc "Error: must be run as root"
 	usage
         exit 10
     fi
@@ -166,17 +175,19 @@ function backupDataTar {
         --exclude=/proc --exclude=/lost+found --exclude=/sys $excludestring \
         $extrataropts $backupdir | split -d -b ${splitsize} - ${filename}. 
         ERR=$?
+        echo "Backup file: ${destdir}/${filename}"
     else
         tar -c${verbose}pzf ${filename} --exclude=/${filename} \
         --exclude=/proc --exclude=/lost+found --exclude=/sys $excludestring \
         $extrataropts $backupdir 
         ERR=$?
+        echo "Backup file: ${destdir}/${filename}*"
     fi
     echo "#-------- backing up complete----------#" 
-    echo "Backup file: ${destdir}/${filename}"
+    [[ "$notifyxbmc" = "true" ]] && notifyXbmc "Tar backup complete"
 
     # rotate old backups
-    rotateTars
+    [[ $maxtarbackups -gt 0 ]] && rotateTars
 }
 
 function mkTarFileName {
@@ -238,6 +249,13 @@ function backupDataRsync {
     rsync ${rsyncargs} ${backupdir} ${subdir}0/
     ERR=$?
     echo "#----- backup  complete  ---------#" 
+    [[ "$notifyxbmc" = "true" ]] && notifyXbmc "Rsync backup complete"
+}
+
+function notifyXbmc {
+    message=$1
+    wget -T 5 -t 1 "$xbmcurl/xbmcCmds/xbmcHttp?command=ExecBuiltIn(Notification(wsuxbackup,$message,5000))"  -O - > /dev/null 2>&1
+
 }
 
 ###
@@ -261,11 +279,13 @@ fi
 # parse commandline options
 [[ -z $1 ]] && usage
 
-while getopts 'm:vi:d:BP:Shc' flag
+while getopts 'm:vi:d:BP:ShcC:' flag
 do
 #echo "FLAG:" "$flag" $OPTARG
     case $flag in
         c) useconfigonly="true" ; break ;;
+        C) useconfigonly="true"
+           configfile=$OPTARG ; break ;;
         m) backupmethod=$OPTARG ;;
         v) verbose="v" ;;
         i) backupdir=$OPTARG ;;
@@ -277,7 +297,7 @@ do
         h) usage ; exit 1 ;;
         :) echo "option \"-$OPTARG\" needs an argument"  >&2 ;;
         ?) echo "unknown option $OPTARG" ; exit 1 >&2 ;;
-        #*) usage ; exit 1 ;;
+        *) usage ; exit 1 ;;
     esac
 done
 
@@ -292,11 +312,12 @@ INFO - using options:
    splitfiles: $splitfiles
    splitsize: $splitsize
 "
+#notifyXbmc "backup started"
+#exit 0
 
 date=$(date '+%Y_%m_%d')
-#filename="backup_$(hostname)_${date}.tar.gz"
-#[[ -z $backupdir ]] && backupdir="/"
 
+[[ "$notifyxbmc" = "true" ]] && notifyXbmc "backup started"
 checkRoot 
 checkBackupDir
 rotateTars
@@ -307,6 +328,4 @@ rotateTars
 [[ "$backupmethod" = "rsync" ]] && backupDataRsync
 
 exit 0
-
-
 
