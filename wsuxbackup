@@ -9,52 +9,52 @@
 ###################################################
 
 # backup source dir, which directory do we backup 
-backupdir="/"     # default: "/" - backup entire system
+#backupdir="/"     # default: "/" - backup entire system
 #backupdir="/home/"     # default: "/" - backup entire system
 
 # backup destination dir, where the backup is stored
-destdir="/data/backup"
+#destdir="/data/backup"
 
 
 # backup the MBR? 
-backupmbr="true"
 backupmbr="false"
+#backupmbr="true"
 
 # backup extended partition Table - Warning: does NOT support GUID/GPT
 # Apple MACs are using GPT, do not enable on MAC.
 # leave false if unsure.
-#backupparttable="false"
-backupparttable="true"
+backupparttable="false"
+#backupparttable="true"
 
 # the disk that holds the MBR
-disk="/dev/sda"
+#disk="/dev/sda"
 
 # check free space on backup medium
 checkspace="true"
 
 # for Rsync method(see below) you need at least 110% free
 # lower values will be ignored
-# sane values for tar method are >25%
-destpercentminfree="25"   # for Rsync method(see below) you need at least 110% free
+# sane values for tar method are >50%
+destpercentminfree="50"   # for Rsync method(see below) you need at least 110% free
 
 # which dirs to exclude from backup
-#excludes=(/mnt /media /home/*/.gvfs /var/cache /var/log) # defaults
-excludes=(/mnt/* /media/* /home/*/.gvfs /data /data2 /home/xbmc/.ccache /var/cache /var/log /opt/xbmc.src /opt/ffmpeg /opt/ffmpeg-0.7.1) 
+excludes=(/mnt/* /media/* /home/*/.gvfs /var/cache /var/log/*) # defaults
+#excludes=(/mnt/* /media/* /home/*/.gvfs /data /data2 /home/xbmc/.ccache /var/cache /var/log /opt/xbmc.src /opt/ffmpeg /opt/ffmpeg-0.7.1) 
 
 # Backup Method - tar or rsync
-backupmethod="rsync"
-#backupmethod="tar"
+backupmethod="tar"
+#backupmethod="rsync"
 
 # Max backup count
-maxtarbackups="3"
-maxrsyncbackups="7"
+#maxtarbackups="3"
+#maxrsyncbackups="7"
 
 # split tar backup to multiple parts
-splitfiles="true"  # set to false to not split backup
-splitsize="3900m"  #~4GB
+#splitfiles="true"  # set to false to not split backup
+#splitsize="3900m"  #~4GB
 
 # extra options for tar and rsync
-verbose="v"   #"v" = verbose. leave blank for no verbosity
+#verbose="v"   #"v" = verbose. leave blank for no verbosity
 #extrataropts=""
 #extrarsyncopts=""
 
@@ -84,6 +84,8 @@ function usage {
     echo "  -P backup partition table"
     echo "  -S split backup files to size[m] - e.g 3900m (4GB)" ; 
     echo "  -h this help" 
+
+    exit 1
 }
 
 function checkRoot {
@@ -96,16 +98,21 @@ function checkRoot {
 }
 
 function checkBackupDir {
+    mkTarFileName
+    #echo "in checkBackupDir"
+
+    [[ -d $backupdir ]] || echo "ERROR: directory $backupdir does not exist" #; exit 1
     cd $destdir || exit 11
-    if [ "$backupmethod" = "tar" ] && [ -f $filename* ]
+    if [[ "$backupmethod" = "tar" ]] && [ -f $filename* ]
     then
         echo "todays backup $filename already exists" 
-        exit 1
+        #exit 1
     fi
 
     if [ "$checkspace" != "false" ]
     then 
         rootsize=$(df -k |grep "$backupdir$" | awk '{ print $3 }')
+        [[ -z $rootsize ]] && rootsize=$(du -sk $backupdir 2>/dev/null | tail -1 | awk '{ print $1 }')
         destfree=$(df -k . |tail -1 | awk '{ print $3 }')
         tmp=$(echo "scale=2;  ($destfree / $rootsize) * 100" | bc)
         destpercentfree=${tmp%\.00}
@@ -113,18 +120,19 @@ function checkBackupDir {
     
         if [ "$backupmethod" = "tar" ] && [ $destpercentfree -lt $destpercentminfree ]
         then 
-            echo "Warning: free space on $destdir is lower then 25% of used space on $backupdir" 
+            echo "Warning: free space on $destdir is lower then $destpercentminfree % of used space on $backupdir" 
             echo "free up space or set checkspace=\"false\" to ignore" 
             exit 12
         fi
         
-        if [ "$backupmethod" = "rsync" ] && [ $destpercentfree -lt 110 ]
+        if [ "$backupmethod" = "rsync" ] && [ $destpercentfree -lt $destpercentminfree ]
 	then
-            echo "Warning: free space on $destdir is lower then 110% of used space on $backupdir" 
+            echo "Warning: free space on $destdir is lower then $destpercentminfree % of used space on $backupdir" 
             echo "free up space or set checkspace=\"false\" to ignore" 
             exit 12
         fi
     fi
+
 }
 
 function backupMBR {
@@ -144,9 +152,13 @@ function backupParttable {
 }
 
 function backupDataTar {
+    mkTarFileName 
 
     excludestring=$(echo "" ${excludes[*]} | sed -r 's/\s+/ --exclude=/g')
+    # if destination dir exists
     cd ${destdir} || exit 11
+
+    # start the tar backup
     echo "#-------- backing up data----------#" 
     if [[ "$splitfiles" = "true" ]]
     then
@@ -160,17 +172,49 @@ function backupDataTar {
         $extrataropts $backupdir 
         ERR=$?
     fi
+    echo "#-------- backing up complete----------#" 
+    echo "Backup file: ${destdir}/${filename}"
+
+    # rotate old backups
+    rotateTars
+}
+
+function mkTarFileName {
+
+    backupdirname=${backupdir//\/}
+    [[ "${backupdir}" = "/" ]] && backupdirname="complete"
+    filename="backup_$(hostname)_${backupdirname}_${date}.tar.gz"
+    #echo $filename
+}
+
+function rotateTars {
+    mkTarFileName
+    fnamepattern=$(echo $filename | tr "[:digit:]" "?")
+    cd ${destdir} || exit 11
+    numtars=$(ls -t ${fnamepattern}* | wc -l)
+    
+    # too much old backups exist
+    if [ $numtars -gt $maxtarbackups ]
+    then
+        echo "INFO: you have $numtars tar backups in $destdir"
+        echo "configured max is only $maxtarbackups"
+        echo "deleting old tar backups"
+
+        # delete x oldest files
+        ls -t ${fnamepattern}* | tail -$((numtars - maxtarbackups)) | xargs rm 
+        #ls -t ${fnamepattern}* | tail -$((numtars - maxtarbackups)) | xargs ls -l 
+    fi
 }
 
 function backupDataRsync {
-    echo "backing up $backupdir with rsync"
+    #echo "backing up $backupdir with rsync"
     excludestring=$(echo "" ${excludes[*]} | sed -r 's/\s+/ --exclude=/g')
     rsyncargs="-aAHXRSE${verbose} --devices --specials --delete-during --numeric-ids --exclude=/proc/* --exclude=/lost+found --exclude=/sys/* ${excludestring} ${extrarsyncopts}"
     subdir="$(hostname)_"
 
     cd ${destdir} || exit 11
     oldest=$(ls -d1 ${subdir}* | tail -1)
-    
+    echo "#-------- rotate old backups --------#" 
     if [ -d ${oldest} ]
     then
         if [ ${oldest#$(hostname)_} -ge $maxrsyncbackups ]
@@ -189,23 +233,34 @@ function backupDataRsync {
         echo "cp -al ${subdir}1 ${subdir}0" 
         cp -al ${subdir}1 ${subdir}0
     fi 
-    echo "#-------- backing up data----------#" 
+    echo "#-------- backing up data ----------#" 
     echo "rsync ${rsyncargs} ${backupdir} ${subdir}0/ "
     rsync ${rsyncargs} ${backupdir} ${subdir}0/
     ERR=$?
-    [ $ERR -eq 0 ] && echo "#----- backup  successful ---------#" 
+    echo "#----- backup  complete  ---------#" 
 }
 
 ###
 # Main
 ###
 
-#soure config files
-[[ -r /etc/wsuxbackup.cfg ]] && echo "reading /etc/wsuxbackup.cfg" && . /etc/wsuxbackup.cfg
-[[ -r ${0%$(basename $0)}/wsuxbackup.cfg ]] && echo "reading wsuxbackup.cfg" && . ${0%$(basename $0)}/wsuxbackup.cfg
+# read config files
+# local config file takes precedence over /etc/wsuxbackup.cfg
+#[[ -r /etc/wsuxbackup.cfg ]] && echo "reading /etc/wsuxbackup.cfg" && . /etc/wsuxbackup.cfg
+if [[ -r ${0%$(basename $0)}/wsuxbackup.cfg ]]
+then
+    echo "reading wsuxbackup.cfg" 
+    . ${0%$(basename $0)}/wsuxbackup.cfg
+elif [[ -r /etc/wsuxbackup.cfg ]]
+then
+     echo "reading /etc/wsuxbackup.cfg"
+     . /etc/wsuxbackup.cfg
+fi
+
 
 # parse commandline options
 [[ -z $1 ]] && usage
+
 while getopts 'm:vi:d:BP:Shc' flag
 do
 #echo "FLAG:" "$flag" $OPTARG
@@ -222,20 +277,30 @@ do
         h) usage ; exit 1 ;;
         :) echo "option \"-$OPTARG\" needs an argument"  >&2 ;;
         ?) echo "unknown option $OPTARG" ; exit 1 >&2 ;;
-        *) usage ; exit 1 ;;
+        #*) usage ; exit 1 ;;
     esac
 done
-echo "options: $backupmethod $verbose $backupdir $destdir $backupmbr $backupparttable $splitsize"
 
-echo bla
-exit 0
+
+echo "
+INFO - using options: 
+   backupmethod: $backupmethod 
+   backupdir: $backupdir 
+   destdir: $destdir 
+   backupmbr: $backupmbr 
+   backupparttable: $backupparttable 
+   splitfiles: $splitfiles
+   splitsize: $splitsize
+"
 
 date=$(date '+%Y_%m_%d')
-filename="backup_$(hostname)_${date}.tar.gz"
-[[ -z $backupdir ]] && backupdir="/"
+#filename="backup_$(hostname)_${date}.tar.gz"
+#[[ -z $backupdir ]] && backupdir="/"
 
 checkRoot 
 checkBackupDir
+rotateTars
+
 [[ "$backupmbr" = "true" ]] && backupMBR
 [[ "$backupparttable" = "true" ]] && backupParttable
 [[ "$backupmethod" = "tar" ]] && backupDataTar
