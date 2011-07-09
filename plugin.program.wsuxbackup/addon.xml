@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+<addon 
+  id="plugin.program.wsuxbackup" 
+  version="0.0.1" 
+  name="XBMC System Backup" 
+  provider-name="wsnipex"
+  > 
+  <requires>
+   <import addon="xbmc.gui"/>
+   <import addon="xbmc.plugin"/>
+   <import addon="xbmc.python" version="2.0"/>
+  </requires> 
+  <extension point="xbmc.python.pluginsource" library="default.py">
+<provides>executable</provides>
+  </extension> 
+  <extension point="xbmc.addon.metadata"> 
+    <summary>XBMC System Backup Addon</summary>
+    <description>Lets you backup your complete linux install or specific directories</description> 
+    <platform>linux</platform> 
+  </extension> 
+</addon>
