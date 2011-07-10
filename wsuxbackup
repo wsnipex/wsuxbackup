@@ -285,7 +285,9 @@ do
     case $flag in
         c) useconfigonly="true" ; break ;;
         C) useconfigonly="true"
-           configfile=$OPTARG ; break ;;
+           configfile=$OPTARG 
+           . $configfile
+           break ;;
         m) backupmethod=$OPTARG ;;
         v) verbose="v" ;;
         i) backupdir=$OPTARG ;;
@@ -304,6 +306,7 @@ done
 
 echo "
 INFO - using options: 
+   configfile: $configfile
    backupmethod: $backupmethod 
    backupdir: $backupdir 
    destdir: $destdir 
@@ -311,6 +314,7 @@ INFO - using options:
    backupparttable: $backupparttable 
    splitfiles: $splitfiles
    splitsize: $splitsize
+   userid: $(id -n -u)
 "
 #notifyXbmc "backup started"
 #exit 0
@@ -318,7 +322,9 @@ INFO - using options:
 date=$(date '+%Y_%m_%d')
 
 [[ "$notifyxbmc" = "true" ]] && notifyXbmc "backup started"
-checkRoot 
+[[ -r $backupdir ]] || checkRoot 
+
+#exit 0
 checkBackupDir
 rotateTars
 

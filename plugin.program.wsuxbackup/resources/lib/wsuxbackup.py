@@ -43,8 +43,8 @@ try:
     print "WSUXBACKUP: PLUGIN_DATA_PATH =" + PLUGIN_DATA_PATH
     #print "WSUXBACKUP: Settings", __settings__
 
-except exception, e: 
-    print e
+except: 
+    print sys.exc_info()[0]
     # source path for launchers data
     PLUGIN_DATA_PATH = xbmc.translatePath( os.path.join( "special://profile/plugin_data", "programs", sys.modules[ "__main__" ].__plugin__) )
 
@@ -78,7 +78,7 @@ WRITECFG_COMMAND = "%%CFG%%"
 #pDialog = xbmcgui.DialogProgress()
 #pDialog.create( sys.modules[ "__main__" ].__plugin__ )
 
-BACKUP_SETTINGS = ["configfile", "destdir", "backupmbr", "backupparttable", "disk", "checkspace", "excludes", "backupmethod", "maxtarbackups", "maxrsyncbackups", "xbmcurl"]
+BACKUP_SETTINGS = ["configfile", "backupdir", "destdir", "backupmbr", "backupparttable", "disk", "checkspace", "excludes", "backupmethod", "maxtarbackups", "maxrsyncbackups", "xbmcurl", "xbmcport"]
 
 
 class Main:
@@ -107,7 +107,7 @@ class Main:
         self._path = sys.argv[0]
         
         # get users preference
-        self._get_settings()
+        self.settings = self._get_settings()
         print "WSUXBACKUP: Settings =", self.settings
         self._load_launchers(self.get_xml_source())
 
@@ -117,7 +117,7 @@ class Main:
         if param:
             #print "param: ", param
             param = param[1:]
-            self._log("param: " + param)
+            #self._log("param: " + param)
             tmp = param.split("/")
     
             if (param == ADD_COMMAND):
@@ -161,6 +161,7 @@ class Main:
         dialog = xbmcgui.Dialog()
         ret = dialog.yesno(__language__( 30000 ), __language__( 30010 ) % launcherName)
         if (ret):
+            print self.launchers
             self.launchers.pop(launcherName)
             self._save_launchers()
             xbmc.executebuiltin("ReplaceWindow(Programs,%s)" % (self._path))
@@ -178,6 +179,11 @@ class Main:
     def _run_launcher(self, launcherName):
         if (self.launchers.has_key(launcherName)):
             launcher = self.launchers[launcherName]
+            if (len(launcher["passwd"]) == 0):
+                #TODO: get passwd from user via keyboard input
+                #self._log("TODO")
+                launcher["passwd"] = self._get_keyboardinput("", 30013, True)
+                
             if (os.environ.get( "OS", "xbox" ) == "xbox"):
                 #xbmc.executebuiltin('XBMC.Runxbe(' + launcher["application"] + ')')
                 self._log("ERROR: Xbox is not supported")
@@ -196,7 +202,14 @@ class Main:
                 elif (sys.platform.startswith('linux')):
 #                    #this minimizes xbmc some apps seems to need it
 #                    xbmc.executehttpapi("Action(199)")
-                    os.system("%s %s" % (launcher["application"], launcher["args"]))
+                     #
+                     #self._log("%s %s %s %s" % (launcher["application"], launcher["args"], str(launcher["config"]), ">/tmp/" + "TEST" + ".log 2>&1"))
+                     #os.system("%s %s %s %s" % (launcher["application"], launcher["args"], str(launcher["config"]), ">/tmp/" + "TEST" + ".log 2>&1"))
+                     if (len(launcher["passwd"]) > 0):
+                         os.system('echo \'%s\'|sudo -S %s %s %s %s' % (launcher["passwd"], launcher["application"], launcher["args"], str(launcher["config"]), ">/tmp/wsuxbackup.log 2>&1"))
+                     else:
+                         os.system("%s %s %s %s" % (launcher["application"], launcher["args"], str(launcher["config"]), ">/tmp/wsuxbackup.log 2>&1"))
+                     #self._log('echo \'%s\'|sudo -S %s %s %s %s' % (launcher["passwd"], launcher["application"], launcher["args"], str(launcher["config"]), ">/tmp/" + "TEST" + ".log 2>&1"))
 #                    #this brings xbmc back
 #                    xbmc.executehttpapi("Action(199)")
 #                elif (sys.platform.startswith('darwin')):
@@ -206,8 +219,9 @@ class Main:
 #                    #this brings xbmc back
 #                    xbmc.executehttpapi("Action(199)")
                 else:
-                    pass;
                     # unsupported platform
+                    self._log("unsupported platform")
+                    
                              
 
 
@@ -244,19 +258,9 @@ class Main:
             usock.write("\t\t<name>"+launcher["name"]+"</name>\n")
             usock.write("\t\t<application>"+launcher["application"]+"</application>\n")
             usock.write("\t\t<args>"+launcher["args"]+"</args>\n")
-            #usock.write("\t\t<rompath>"+launcher["rompath"]+"</rompath>\n")
-            #usock.write("\t\t<romext>"+launcher["romext"]+"</romext>\n")
-            #usock.write("\t\t<thumb>"+launcher["thumb"]+"</thumb>\n")
+            usock.write("\t\t<config>"+launcher["config"]+"</config>\n")
             usock.write("\t\t<wait>"+launcher["wait"]+"</wait>\n")
-            #usock.write("\t\t<roms>\n")
-#            for romIndex in launcher["roms"]:
-#                romdata = launcher["roms"][romIndex]
-#                usock.write("\t\t\t<rom>\n")
-#                usock.write("\t\t\t\t<name>"+romdata["name"]+"</name>\n")
-#                usock.write("\t\t\t\t<filename>"+romdata["filename"]+"</filename>\n")
-#                usock.write("\t\t\t\t<thumb>"+romdata["thumb"]+"</thumb>\n")
-#                usock.write("\t\t\t</rom>\n")
-#            usock.write("\t\t</roms>\n")
+            usock.write("\t\t<passwd>"+launcher["passwd"]+"</passwd>\n")
             usock.write("\t</launcher>\n")            
         usock.write("</launchers>")
         usock.close()
@@ -270,6 +274,8 @@ class Main:
             application = re.findall( "<application>(.*?)</application>", launcher )
             args = re.findall( "<args>(.*?)</args>", launcher )
             wait = re.findall( "<wait>(.*?)</wait>", launcher )
+            config = re.findall( "<config>(.*?)</config>", launcher )
+            passwd = re.findall( "<passwd>(.*?)</passwd>", launcher )
 
             if len(name) > 0 : name = name[0]
             else: name = "unknown"
@@ -282,6 +288,12 @@ class Main:
 
             if len(wait) > 0: wait = wait[0]
             else: wait = ""
+            
+            if len(config) > 0 : config = config[0]
+            else: config = ""
+           
+            if len(passwd) > 0 : passwd = passwd[0]
+            else: passwd = ""
            
 
             # prepare launcher object data
@@ -290,6 +302,8 @@ class Main:
             launcherdata["application"] = application
             launcherdata["args"] = args
             launcherdata["wait"] = wait
+            launcherdata["config"] = config
+            launcherdata["passwd"] = passwd
             # add launcher to the launchers list (using name as index)
             self.launchers[name] = launcherdata
     
@@ -297,7 +311,7 @@ class Main:
         if (len(self.launchers) > 0):
             for key in sorted(self.launchers.iterkeys()):
                 #self._add_launcher(self.launchers[key]["name"], self.launchers[key]["application"], self.launchers[key]["rompath"], self.launchers[key]["romext"], self.launchers[key]["thumb"], self.launchers[key]["wait"], self.launchers[key]["roms"], len(self.launchers))
-                self._add_launcher(self.launchers[key]["name"], self.launchers[key]["application"], self.launchers[key]["wait"], len(self.launchers))
+                self._add_launcher(self.launchers[key]["name"], self.launchers[key]["application"], self.launchers[key]["wait"], self.launchers[key]["config"], self.launchers[key]["passwd"], len(self.launchers))
                 #self._add_backup(self.launchers[key]["name"], self.launchers[key]["application"], self.launchers[key]["wait"], len(self.launchers))
             xbmcplugin.endOfDirectory( handle=int( self._handle ), succeeded=True, cacheToDisc=False )
             return True   
@@ -317,7 +331,7 @@ class Main:
 
 
         
-    def _add_launcher(self, name, cmd, wait, total) :
+    def _add_launcher(self, name, cmd, wait, config, passwd, total) :
         commands = []
         path = ""
         if (path == ""):
@@ -343,28 +357,27 @@ class Main:
         self._log("Using Backup Script: " + app)
         #app = xbmcgui.Dialog().browse(1,__language__( 30023 ),"files",filter)
         if (app):
-            argkeyboard = xbmc.Keyboard("", __language__( 30024 ))
-            argkeyboard.doModal()
-            if (argkeyboard.isConfirmed()):
-                args = argkeyboard.getText();
-                title = os.path.basename(app).split(".")[0].capitalize()
-                keyboard = xbmc.Keyboard(title, __language__( 30025 ))
-                keyboard.doModal()
-                if (keyboard.isConfirmed()):
-                    title = keyboard.getText()                    
-                    # prepare launcher object data
-                    launcherdata = {}
-                    launcherdata["name"] = title
-                    launcherdata["application"] = app
-                    launcherdata["args"] = args
-                    launcherdata["wait"] = "false" 
-                                                        
-                    # add launcher to the launchers list (using name as index)
-                    self.launchers[title] = launcherdata
-                    self._save_launchers()
+            title = os.path.basename(app).split(".")[0].capitalize()
+            title = self._get_keyboardinput(title, 30025)
+            passwd = self._get_keyboardinput("", 30013) 
+            
+            # prepare launcher object data
+            launcherdata = {}
+            launcherdata["name"] = title
+            config = os.path.join(PLUGIN_DATA_PATH, launcherdata["name"] + ".cfg").replace(" ", "")
+            launcherdata["config"] = config 
+            launcherdata["application"] = app
+            launcherdata["args"] = "-C "
+            launcherdata["wait"] = "false" 
+            launcherdata["passwd"] = passwd
+                                                
+            # add launcher to the launchers list (using name as index)
+            self.launchers[title] = launcherdata
+            self._write_configfile(title)
+            self._save_launchers()
 
-                    xbmc.executebuiltin("ReplaceWindow(Programs,%s)" % (self._path))
-                    return True
+            xbmc.executebuiltin("ReplaceWindow(Programs,%s)" % (self._path))
+            return True
 
         
 
@@ -390,28 +403,52 @@ class Main:
         except:
             for i in BACKUP_SETTINGS:
                 self.settings[i] = __settings__.getSetting(i)
+        return self.settings
 
 
     def _write_configfile(self, name):
         __settings__.openSettings(_id)
         # get newly created config
-        self._get_settings
+        newsettings = self._get_settings()
+        self._log(newsettings)
         
-        cfgname = os.path.join(PLUGIN_DATA_PATH, self.settings["configfile"]).replace(" ", "")
-        self._log("writing Config File: " + cfgname)
-        
+        if (self.launchers[name]["config"]):
+            print "CFG exists: " + self.launchers[name]["config"]
+            cfgname = self.launchers[name]["config"]
+        else:
+            cfgname = os.path.join(PLUGIN_DATA_PATH, name + ".cfg").replace(" ", "")
+            self._log("writing Config File: " + str(cfgname))
+            self.settings["config"] = str(cfgname)
+        #xbmc.executeJSONRPC('{ "jsonrpc": "2.0", "method": "JSONRPC.NotifyAll", "WSUXBackup", "TEST" }')
         try:
             f=open(cfgname, "w")
             
-        except exception, e:
+        except:
+            print sys.exc_info()[0]
             self._log("Error opening" + cfgname )
             return False
         
         if (f):
             for k, v in self.settings.iteritems():
-                line=k + "=" + '"' + v + '"' + "\n"
+                if (k == "configfile") or (k == "config") or (k == "passwd")  :
+                    continue
+                if (k == "xbmcurl"):
+                    v = "http://" + self.settings[k] + ":" + self.settings["xbmcport"]
+                if (k == "xbmcport"):
+                    continue
+                line = k + "=" + '"' + str(v) + '"' + "\n"
                 f.writelines(line)
+            f.close()
+            
+        #self._save_launchers()
         return True
         
         
+    def _get_keyboardinput(self, text, langid, hidden=False):
+        keyboard = xbmc.Keyboard(text, __language__(langid), hidden)
+        keyboard.doModal()
+        if (keyboard.isConfirmed()):
+            return keyboard.getText()
         
+    
+

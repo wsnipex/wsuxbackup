@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <settings> 
-	<setting id="configfile" type="text" label="WSUXBackup Config file" default="wsuxbackup.cfg" />
+	<!--setting id="configfile" type="text" label="WSUXBackup Config file" default="" hidden="true" /-->
 	<setting id="backupdir" type="folder" label="backupdir" default="/" />
 	<setting id="destdir" type="folder" label="destdir" default="" />
-	<setting id="backupmethod" type="text" label="Backup Method" default="tar" />
+	<setting id="backupmethod" type="labelenum" label="Backup Method" values="tar|rsync" default="tar" />
 	<setting id="backupmbr" type="bool" label="backupmbr" default="false" />
 	<setting id="backupparttable" type="bool" label="backupparttable" default="false" />
-	<setting id="disk" type="text" label="disk that holds the MBR"  default="/dev/sda" />
+	<setting id="disk" type="labelenum" label="disk that holds the MBR" values="/dev/sda|/dev/sdb|/dev/sdc" default="/dev/sda" />
 	<setting id="checkspace" type="bool" label="checkspace" default="true" />
 	<setting id="destpercentminfree" type="text" label="% min free space on destdir" default="100" />
 	<setting id="maxtarbackups" type="text" label="delete old backups if more then maxtarbackups exists" default="3" />
@@ -16,5 +16,6 @@
 	<setting id="notifyxbmc" type="bool" label="send notifications to XBMC" default="true" />
 	<setting id="xbmcurl" type="ipaddress" label="XBMC IP" default="127.0.0.1" />
 	<setting id="xbmcport" type="text" label="XBMC HTTP Port" default="8082" />
+	<setting id="passwd" type="text" label="Sudo Password" default="" option="hidden" visible="False" />
 	
 </settings> 
