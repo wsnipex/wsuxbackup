@@ -271,8 +271,16 @@ function checkRunning {
     then
         oldpid=$(cat $pidfile)
         echo "found pidfile, pid is $oldpid"
-        RET=$(ps -fe | grep $oldpid | grep wsuxbackup >/dev/null 2>&1)
-        [[ $RET -eq 0 ]] && echo "ERROR: wsuxbackup is still running, exiting" && exit 20
+        ps -fe | grep -v "grep" | grep $oldpid | grep wsuxbackup >/dev/null 2>&1
+        if [ $? -eq 0 ] 
+        then
+            notifyXbmc "wsuxbackup is still running"
+            echo "ERROR: wsuxbackup is still running, exiting" 
+            exit 20
+        else
+            echo "removing stale pidfile $pidfile"
+            rm $pidfile
+        fi
     else
         makePid
     fi
@@ -291,6 +299,7 @@ if [[ -r ${0%$(basename $0)}/wsuxbackup.cfg ]]
 then
     echo "reading wsuxbackup.cfg" 
     . ${0%$(basename $0)}/wsuxbackup.cfg
+    configfile="${0%$(basename $0)}/wsuxbackup.cfg"
 elif [[ -r /etc/wsuxbackup.cfg ]]
 then
      echo "reading /etc/wsuxbackup.cfg"
@@ -342,7 +351,8 @@ INFO - using options:
 date=$(date '+%Y_%m_%d')
 
 [[ "$notifyxbmc" = "true" ]] && notifyXbmc "backup started"
-[[ -r $backupdir ]] || checkRoot 
+#[[ -r $backupdir ]] || checkRoot 
+checkRoot
 
 checkBackupDir
 rotateTars
