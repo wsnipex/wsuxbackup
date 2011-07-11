@@ -66,6 +66,7 @@ notifyxbmc="false"
 xbmcurl="http://localhost:8080"  # URL of XBMCs webserver
 
 
+pidfile="/tmp/wsuxbackup.pid"
 #---------------- END CONFIG ---------------------#
 
 ###
@@ -258,9 +259,30 @@ function notifyXbmc {
 
 }
 
+function makePid {
+    echo $$ > $pidfile
+}
+
+function checkRunning {
+
+    pid=$$
+    #echo "current PID: $pid"
+    if [[ -f $pidfile ]] 
+    then
+        oldpid=$(cat $pidfile)
+        echo "found pidfile, pid is $oldpid"
+        RET=$(ps -fe | grep $oldpid | grep wsuxbackup >/dev/null 2>&1)
+        [[ $RET -eq 0 ]] && echo "ERROR: wsuxbackup is still running, exiting" && exit 20
+    else
+        makePid
+    fi
+
+}
+
 ###
 # Main
 ###
+checkRunning
 
 # read config files
 # local config file takes precedence over /etc/wsuxbackup.cfg
@@ -316,15 +338,12 @@ INFO - using options:
    splitsize: $splitsize
    userid: $(id -n -u)
 "
-#notifyXbmc "backup started"
-#exit 0
 
 date=$(date '+%Y_%m_%d')
 
 [[ "$notifyxbmc" = "true" ]] && notifyXbmc "backup started"
 [[ -r $backupdir ]] || checkRoot 
 
-#exit 0
 checkBackupDir
 rotateTars
 
@@ -333,5 +352,6 @@ rotateTars
 [[ "$backupmethod" = "tar" ]] && backupDataTar
 [[ "$backupmethod" = "rsync" ]] && backupDataRsync
 
+rm /tmp/wsuxbackup.pid >/dev/null 2>&1
 exit 0
 
